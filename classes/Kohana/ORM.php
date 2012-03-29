@@ -16,10 +16,21 @@
 class Kohana_ORM extends Model implements serializable {
 
 	/**
+	 * Default object context
+	 */
+	const CONTEXT_DEFAULT = 'default';
+
+	/**
 	 * Stores column information for ORM models
 	 * @var array
 	 */
 	protected static $_column_cache = array();
+	
+	/**
+	 * Array of context_name => expected_fields pairs
+	 * @var array
+	 */
+	protected static $_context_values = array();
 	
 	/**
 	 * Initialization storage for ORM models
@@ -35,13 +46,19 @@ class Kohana_ORM extends Model implements serializable {
 	 * @param   mixed   $id     Parameter for find()
 	 * @return  ORM
 	 */
-	public static function factory($model, $id = NULL)
+	public static function factory($model, $id = NULL, $context = NULL)
 	{
 		// Set class name
 		$model = 'Model_'.ucfirst($model);
 
-		return new $model($id);
+		return new $model($id, $context);
 	}
+	
+	/**
+	 * Current model context - for filters(), rules(), values(), etc.
+	 * @var string
+	 */
+	protected $_context;
 
 	/**
 	 * "Has one" relationships
@@ -247,8 +264,14 @@ class Kohana_ORM extends Model implements serializable {
 	 * @param   mixed $id Parameter for find or object to load
 	 * @return  void
 	 */
-	public function __construct($id = NULL)
+	public function __construct($id = NULL, $context = NULL)
 	{
+		if ($context === NULL)
+		{
+			// If no context provided, use the default
+			$context = static::CONTEXT_DEFAULT;
+		}
+		
 		$this->_initialize();
 
 		if ($id !== NULL)
@@ -292,6 +315,12 @@ class Kohana_ORM extends Model implements serializable {
 		// Check if this model has already been initialized
 		if ( ! $init = Arr::get(ORM::$_init_cache, $this->_object_name, FALSE))
 		{
+			// If default contexts' fields aren't defined, make all fields changable
+			if ( ! array_key_exists(static::CONTEXT_DEFAULT, static::$_context_values))
+			{
+				static::$_context_values[static::CONTEXT_DEFAULT] = TRUE;
+			}
+			
 			$init = array(
 				'_belongs_to' => array(),
 				'_has_one'    => array(),
@@ -735,13 +764,31 @@ class Kohana_ORM extends Model implements serializable {
 	 * for loading in post data, etc.
 	 *
 	 * @param  array $values   Array of column => val
-	 * @param  array $expected Array of keys to take from $values
+	 * @param  mixed $expected Boolean TRUE, string context name or array of keys to take from $values
 	 * @return ORM
 	 */
-	public function values(array $values, array $expected = NULL)
-	{
-		// Default to expecting everything except the primary key
+	public function values(array $values, $expected = NULL)
+	{	
+		// If $expected is NULL, use the current context
 		if ($expected === NULL)
+		{
+			$expected = $this->_context;
+		}
+		
+		// If $expected is a string, use context values
+		if (is_string($expected))
+		{
+			if ( ! array_key_exists($expected, static::$_context_values))
+			{
+				throw new Kohana_Exception('Context `:context` not defined in :class::$_context_values',
+					array(':context' => $expected, ':class' => get_called_class()));
+			}
+			
+			$expected = static::$_context_values[$expected];
+		}
+		
+		// TRUE defaults to "everything except the primary key"
+		if ($expected === TRUE)
 		{
 			$expected = array_keys($this->_table_columns);
 
