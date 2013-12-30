@@ -20,12 +20,109 @@ class Kohana_ORM extends Model implements serializable {
 	 * @var array
 	 */
 	protected static $_column_cache = array();
-	
+
 	/**
-	 * Initialization storage for ORM models
+	 * Database Object
+	 * @var Database
+	 */
+	protected static $_db = NULL;
+
+	/**
+	 * "Has one" relationships
 	 * @var array
 	 */
-	protected static $_init_cache = array();
+	protected static $_has_one = array();
+
+	/**
+	 * "Belongs to" relationships
+	 * @var array
+	 */
+	protected static $_belongs_to = array();
+
+	/**
+	 * "Has many" relationships
+	 * @var array
+	 */
+	protected static $_has_many = array();
+
+	/**
+	 * Relationships that should always be joined
+	 * @var array
+	 */
+	protected static $_load_with = array();
+
+	/**
+	 * Foreign key suffix
+	 * @var string
+	 */
+	protected static $_foreign_key_suffix = '_id';
+
+	/**
+	 * Model name
+	 * @var string
+	 */
+	protected static $_object_name;
+
+	/**
+	 * Plural model name
+	 * @var string
+	 */
+	protected static $_object_plural;
+
+	/**
+	 * Table name
+	 * @var string
+	 */
+	protected static $_table_name;
+
+	/**
+	 * Table columns
+	 * @var array
+	 */
+	protected static $_table_columns;
+
+	/**
+	 * Auto-update columns for updates
+	 * @var string
+	 */
+	protected static $_updated_column = NULL;
+
+	/**
+	 * Auto-update columns for creation
+	 * @var string
+	 */
+	protected static $_created_column = NULL;
+
+	/**
+	 * Auto-serialize and unserialize columns on get/set
+	 * @var array
+	 */
+	protected static $_serialize_columns = array();
+
+	/**
+	 * Table primary key
+	 * @var string
+	 */
+	protected static $_primary_key = 'id';
+
+	/**
+	 * Model configuration, table names plural?
+	 * @var bool
+	 */
+	protected static $_table_names_plural = TRUE;
+
+	/**
+	 * Model configuration, reload on wakeup?
+	 * @var bool
+	 */
+	protected static $_reload_on_wakeup = TRUE;
+
+	/**
+	 * The message filename used for validation errors.
+	 * Defaults to ORM::$_object_name
+	 * @var string
+	 */
+	protected static $_errors_filename = NULL;
 
 	/**
 	 * Creates and returns a new model. 
@@ -45,30 +142,6 @@ class Kohana_ORM extends Model implements serializable {
 
 		return new $model($id);
 	}
-
-	/**
-	 * "Has one" relationships
-	 * @var array
-	 */
-	protected $_has_one = array();
-
-	/**
-	 * "Belongs to" relationships
-	 * @var array
-	 */
-	protected $_belongs_to = array();
-
-	/**
-	 * "Has many" relationships
-	 * @var array
-	 */
-	protected $_has_many = array();
-
-	/**
-	 * Relationships that should always be joined
-	 * @var array
-	 */
-	protected $_load_with = array();
 
 	/**
 	 * Validation object created before saving/updating
@@ -118,82 +191,10 @@ class Kohana_ORM extends Model implements serializable {
 	protected $_sorting;
 
 	/**
-	 * Foreign key suffix
-	 * @var string
-	 */
-	protected $_foreign_key_suffix = '_id';
-
-	/**
-	 * Model name
-	 * @var string
-	 */
-	protected $_object_name;
-
-	/**
-	 * Plural model name
-	 * @var string
-	 */
-	protected $_object_plural;
-
-	/**
-	 * Table name
-	 * @var string
-	 */
-	protected $_table_name;
-
-	/**
-	 * Table columns
-	 * @var array
-	 */
-	protected $_table_columns;
-
-	/**
-	 * Auto-update columns for updates
-	 * @var string
-	 */
-	protected $_updated_column = NULL;
-
-	/**
-	 * Auto-update columns for creation
-	 * @var string
-	 */
-	protected $_created_column = NULL;
-
-	/**
-	 * Auto-serialize and unserialize columns on get/set
-	 * @var array
-	 */
-	protected $_serialize_columns = array();
-
-	/**
-	 * Table primary key
-	 * @var string
-	 */
-	protected $_primary_key = 'id';
-
-	/**
 	 * Primary key value
 	 * @var mixed
 	 */
 	protected $_primary_key_value;
-
-	/**
-	 * Model configuration, table names plural?
-	 * @var bool
-	 */
-	protected $_table_names_plural = TRUE;
-
-	/**
-	 * Model configuration, reload on wakeup?
-	 * @var bool
-	 */
-	protected $_reload_on_wakeup = TRUE;
-
-	/**
-	 * Database Object
-	 * @var Database
-	 */
-	protected $_db = NULL;
 
 	/**
 	 * Database config group
@@ -236,13 +237,6 @@ class Kohana_ORM extends Model implements serializable {
 	 * @var array
 	 */
 	protected $_cast_data = array();
-
-	/**
-	 * The message filename used for validation errors.
-	 * Defaults to ORM::$_object_name
-	 * @var string
-	 */
-	protected $_errors_filename = NULL;
 
 	/**
 	 * Constructs a new model and loads a record if given
@@ -288,103 +282,89 @@ class Kohana_ORM extends Model implements serializable {
 	 */
 	protected function _initialize()
 	{
-		// Set the object name if none predefined
-		if (empty($this->_object_name))
-		{
-			$this->_object_name = strtolower(substr(get_class($this), 6));
-		}
-		
 		// Check if this model has already been initialized
-		if ( ! $init = Arr::get(ORM::$_init_cache, $this->_object_name, FALSE))
+		if ( ! static::$_initialized)
 		{
-			$init = array(
-				'_belongs_to' => array(),
-				'_has_one'    => array(),
-				'_has_many'   => array(),
-			);
+			// Set the object name if none predefined
+			if (empty(static::$_object_name))
+			{
+				static::$_object_name = strtolower(substr(get_class($this), 6));
+			}
 			
 			// Set the object plural name if none predefined
-			if ( ! isset($this->_object_plural))
+			if ( ! isset(static::$_object_plural))
 			{
-				$init['_object_plural'] = Inflector::plural($this->_object_name);
+				static::$_object_plural = Inflector::plural(static::$_object_name);
 			}
 
-			if ( ! $this->_errors_filename)
+			if ( ! static::$_errors_filename)
 			{
-				$init['_errors_filename'] = $this->_object_name;
+				static::$_errors_filename = static::$_object_name;
 			}
 
-			if ( ! is_object($this->_db))
+			if ( ! static::$_db)
 			{
 				// Get database instance
-				$init['_db'] = Database::instance($this->_db_group);
+				static::$_db = Database::instance(static::$_db_group);
 			}
 
-			if (empty($this->_table_name))
+			if (empty(static::$_table_name))
 			{
 				// Table name is the same as the object name
-				$init['_table_name'] = $this->_object_name;
+				static::$_table_name = static::$_object_name;
 
-				if ($this->_table_names_plural === TRUE)
+				if (static::$_table_names_plural === TRUE)
 				{
 					// Make the table name plural
-					$init['_table_name'] = Arr::get($init, '_object_plural', $this->_object_plural);
+					static::$_table_name = static::$_object_plural;
 				}
 			}
 			
 			$defaults = array();
 
-			foreach ($this->_belongs_to as $alias => $details)
+			foreach (static::$_belongs_to as $alias => $details)
 			{
 				if ( ! isset($details['model']))
 				{
 					$defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
 				}
 				
-				$defaults['foreign_key'] = $alias.$this->_foreign_key_suffix;
+				$defaults['foreign_key'] = $alias.static::$_foreign_key_suffix;
 
-				$init['_belongs_to'][$alias] = array_merge($defaults, $details);
+				static::$_belongs_to[$alias] = array_merge($defaults, $details);
 			}
 
-			foreach ($this->_has_one as $alias => $details)
+			foreach (static::$_has_one as $alias => $details)
 			{
 				if ( ! isset($details['model']))
 				{
 					$defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', $alias)));
 				}
 				
-				$defaults['foreign_key'] = $this->_object_name.$this->_foreign_key_suffix;
+				$defaults['foreign_key'] = static::$_object_name.static::$_foreign_key_suffix;
 
-				$init['_has_one'][$alias] = array_merge($defaults, $details);
+				static::$_has_one[$alias] = array_merge($defaults, $details);
 			}
 
-			foreach ($this->_has_many as $alias => $details)
+			foreach (static::$_has_many as $alias => $details)
 			{
 				if ( ! isset($details['model']))
 				{
 					$defaults['model'] = str_replace(' ', '_', ucwords(str_replace('_', ' ', Inflector::singular($alias))));
 				}
 				
-				$defaults['foreign_key'] = $this->_object_name.$this->_foreign_key_suffix;
-				$defaults['through'] = NULL;
+				$defaults['foreign_key'] = static::$_object_name.static::$_foreign_key_suffix;
+				$defaults['through']     = NULL;
 				
 				if ( ! isset($details['far_key']))
 				{
-					$defaults['far_key'] = Inflector::singular($alias).$this->_foreign_key_suffix;
+					$defaults['far_key'] = Inflector::singular($alias).static::$_foreign_key_suffix;
 				}
 				
-				$init['_has_many'][$alias] = array_merge($defaults, $details);
+				static::$_has_many[$alias] = array_merge($defaults, $details);
 			}
-			
-			ORM::$_init_cache[$this->_object_name] = $init;
 		}
-		
-		// Assign initialized properties to the current object
-		foreach ($init as $property => $value)
-		{
-			$this->{$property} = $value;
-		}
-		
+
 		// Load column information
 		$this->reload_columns();
 
@@ -431,20 +411,20 @@ class Kohana_ORM extends Model implements serializable {
 	 */
 	public function reload_columns($force = FALSE)
 	{
-		if ($force === TRUE OR empty($this->_table_columns))
+		if ($force === TRUE OR empty(static::$_table_columns))
 		{
-			if (isset(ORM::$_column_cache[$this->_object_name]))
+			if (isset(ORM::$_column_cache[static::$_object_name]))
 			{
 				// Use cached column information
-				$this->_table_columns = ORM::$_column_cache[$this->_object_name];
+				static::$_table_columns = ORM::$_column_cache[static::$_object_name];
 			}
 			else
 			{
 				// Grab column information from database
-				$this->_table_columns = $this->list_columns();
+				static::$_table_columns = $this->list_columns();
 
 				// Load column cache
-				ORM::$_column_cache[$this->_object_name] = $this->_table_columns;
+				ORM::$_column_cache[static::$_object_name] = static::$_table_columns;
 			}
 		}
 
@@ -460,7 +440,7 @@ class Kohana_ORM extends Model implements serializable {
 	public function clear()
 	{
 		// Create an array with all the columns set to NULL
-		$values = array_combine(array_keys($this->_table_columns), array_fill(0, count($this->_table_columns), NULL));
+		$values = array_combine(array_keys(static::$_table_columns), array_fill(0, count(static::$_table_columns), NULL));
 
 		// Replace the object and reset the object status
 		$this->_object = $this->_changed = $this->_related = $this->_original_values = array();
@@ -1088,15 +1068,15 @@ class Kohana_ORM extends Model implements serializable {
 	 */
 	protected function _load_values(array $values)
 	{
-		if (array_key_exists($this->_primary_key, $values))
+		if (array_key_exists(static::$_primary_key, $values))
 		{
-			if ($values[$this->_primary_key] !== NULL)
+			if ($values[static::$_primary_key] !== NULL)
 			{
 				// Flag as loaded and valid
 				$this->_loaded = $this->_valid = TRUE;
 
 				// Store primary key
-				$this->_primary_key_value = $values[$this->_primary_key];
+				$this->_primary_key_value = $values[static::$_primary_key];
 			}
 			else
 			{
@@ -1740,12 +1720,12 @@ class Kohana_ORM extends Model implements serializable {
 
 	public function object_name()
 	{
-		return $this->_object_name;
+		return static::$_object_name;
 	}
 
 	public function object_plural()
 	{
-		return $this->_object_plural;
+		return static::$_object_plural;
 	}
 
 	public function loaded()
@@ -1760,37 +1740,37 @@ class Kohana_ORM extends Model implements serializable {
 
 	public function primary_key()
 	{
-		return $this->_primary_key;
+		return static::$_primary_key;
 	}
 
 	public function table_name()
 	{
-		return $this->_table_name;
+		return static::$_table_name;
 	}
 
 	public function table_columns()
 	{
-		return $this->_table_columns;
+		return static::$_table_columns;
 	}
 
 	public function has_one()
 	{
-		return $this->_has_one;
+		return static::$_has_one;
 	}
 
 	public function belongs_to()
 	{
-		return $this->_belongs_to;
+		return static::$_belongs_to;
 	}
 
 	public function has_many()
 	{
-		return $this->_has_many;
+		return static::$_has_many;
 	}
 
 	public function load_with()
 	{
-		return $this->_load_with;
+		return static::$_load_with;
 	}
 
 	public function original_values()
@@ -1800,12 +1780,12 @@ class Kohana_ORM extends Model implements serializable {
 
 	public function created_column()
 	{
-		return $this->_created_column;
+		return static::$_created_column;
 	}
 
 	public function updated_column()
 	{
-		return $this->_updated_column;
+		return static::$_updated_column;
 	}
 
 	public function validation()
@@ -1826,7 +1806,7 @@ class Kohana_ORM extends Model implements serializable {
 
 	public function errors_filename()
 	{
-		return $this->_errors_filename;
+		return static::$_errors_filename;
 	}
 
 	/**
