@@ -1457,25 +1457,19 @@ class Kohana_ORM extends Model implements serializable {
 	public function has($alias, $far_keys = NULL)
 	{
 		$count = $this->count_relations($alias, $far_keys);
+
 		if ($far_keys === NULL)
-		{
 			return (bool) $count;
-		}
-		else
+
+		if ($far_keys instanceof ORM)
 		{
-			if ($far_keys instanceof ORM && ! $far_keys->loaded())
-			{
+			if ( ! $far_keys->loaded())
 				return FALSE;
-			}
 
-			if ( ! Arr::is_array($far_keys))
-			{
-				$far_keys = array($far_keys);
-			}
-
-			return $count === count($far_keys);
+			$far_keys = array($far_keys->pk());
 		}
 
+		return $count === count($far_keys);
 	}
 
 	/**
